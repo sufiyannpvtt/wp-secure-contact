@@ -9,6 +9,8 @@ WP Secure Contact is a custom WordPress plugin that provides a secure contact fo
 - CSRF protection using WordPress nonces
 - Success message after form submission
 - Admin dashboard menu integration
+- Admin-side CRUD: view and delete messages securely
+- Capability checks to restrict admin access
 
 ## Usage
 
