@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: WP Secure Contact
-Description: Secure contact form plugin with secure DB handling.
+Description: Secure contact form plugin with database storage and admin management.
 Version: 1.0
 Author: Mohammad Shadullah
 */
@@ -72,7 +72,7 @@ function wpsc_contact_form() {
 add_shortcode('wpsc_contact', 'wpsc_contact_form');
 
 /*--------------------------------------------------------------
-# Handle Form Submission (Secure)
+# Handle Form Submission (CREATE)
 --------------------------------------------------------------*/
 function wpsc_handle_form_submission() {
 
@@ -88,7 +88,6 @@ function wpsc_handle_form_submission() {
     }
 
     global $wpdb;
-
     $table_name = $wpdb->prefix . 'wpsc_messages';
 
     $wpdb->insert(
@@ -111,7 +110,7 @@ add_action('admin_menu', 'wpsc_admin_menu');
 
 function wpsc_admin_menu() {
     add_menu_page(
-        'Secure Contact',
+        'Contact Messages',
         'Secure Contact',
         'manage_options',
         'wpsc-admin',
@@ -121,41 +120,90 @@ function wpsc_admin_menu() {
 }
 
 /*--------------------------------------------------------------
-# Admin Page: View Messages
+# Handle Delete Action (DELETE)
+--------------------------------------------------------------*/
+function wpsc_handle_delete() {
+
+    if (
+        !isset($_GET['action'], $_GET['id'], $_GET['_wpnonce']) ||
+        $_GET['action'] !== 'wpsc_delete' ||
+        !wp_verify_nonce($_GET['_wpnonce'], 'wpsc_delete_msg')
+    ) {
+        return;
+    }
+
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'wpsc_messages';
+    $id = absint($_GET['id']);
+
+    $wpdb->delete($table, ['id' => $id]);
+
+    wp_redirect(remove_query_arg(['action', 'id', '_wpnonce']));
+    exit;
+}
+add_action('admin_init', 'wpsc_handle_delete');
+
+/*--------------------------------------------------------------
+# Admin Page (READ + DELETE UI)
 --------------------------------------------------------------*/
 function wpsc_admin_page() {
+
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+
     global $wpdb;
     $table_name = $wpdb->prefix . 'wpsc_messages';
-
     $messages = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
 
     echo '<div class="wrap"><h1>Contact Messages</h1>';
 
-    if ($messages) {
-        echo '<table class="widefat striped">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Message</th>
-                        <th>Date</th>
-                    </tr>
-                </thead>
-                <tbody>';
-
-        foreach ($messages as $msg) {
-            echo '<tr>
-                    <td>' . esc_html($msg->name) . '</td>
-                    <td>' . esc_html($msg->email) . '</td>
-                    <td>' . esc_html($msg->message) . '</td>
-                    <td>' . esc_html($msg->created_at) . '</td>
-                  </tr>';
-        }
-
-        echo '</tbody></table>';
-    } else {
-        echo '<p>No messages found.</p>';
+    if (!$messages) {
+        echo '<p>No messages found.</p></div>';
+        return;
     }
 
-    echo '</div>';
+    echo '<table class="widefat striped">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Message</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>';
+
+    foreach ($messages as $msg) {
+
+        $delete_url = wp_nonce_url(
+            add_query_arg(
+                [
+                    'action' => 'wpsc_delete',
+                    'id'     => $msg->id
+                ]
+            ),
+            'wpsc_delete_msg'
+        );
+
+        echo '<tr>
+                <td>' . esc_html($msg->name) . '</td>
+                <td>' . esc_html($msg->email) . '</td>
+                <td>' . esc_html($msg->message) . '</td>
+                <td>' . esc_html($msg->created_at) . '</td>
+                <td>
+                    <a href="' . esc_url($delete_url) . '" 
+                       onclick="return confirm(\'Delete this message?\');">
+                       Delete
+                    </a>
+                </td>
+              </tr>';
+    }
+
+    echo '</tbody></table></div>';
 }
