@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: WP Secure Contact
-Description: Secure contact form plugin with database storage and admin management.
+Description: Secure contact form plugin with admin management (CRUD + Search).
 Version: 1.0
 Author: Mohammad Shadullah
 */
@@ -49,21 +49,10 @@ function wpsc_contact_form() {
     <form method="post">
         <?php wp_nonce_field('wpsc_form_action', 'wpsc_nonce'); ?>
 
-        <p>
-            <input type="text" name="wpsc_name" placeholder="Your Name" required>
-        </p>
-
-        <p>
-            <input type="email" name="wpsc_email" placeholder="Your Email" required>
-        </p>
-
-        <p>
-            <textarea name="wpsc_message" placeholder="Your Message" required></textarea>
-        </p>
-
-        <p>
-            <input type="submit" name="wpsc_submit" value="Send Message">
-        </p>
+        <p><input type="text" name="wpsc_name" placeholder="Your Name" required></p>
+        <p><input type="email" name="wpsc_email" placeholder="Your Email" required></p>
+        <p><textarea name="wpsc_message" placeholder="Your Message" required></textarea></p>
+        <p><input type="submit" name="wpsc_submit" value="Send Message"></p>
     </form>
 
     <?php
@@ -80,18 +69,16 @@ function wpsc_handle_form_submission() {
         return;
     }
 
-    if (
-        !isset($_POST['wpsc_nonce']) ||
-        !wp_verify_nonce($_POST['wpsc_nonce'], 'wpsc_form_action')
-    ) {
+    if (!isset($_POST['wpsc_nonce']) ||
+        !wp_verify_nonce($_POST['wpsc_nonce'], 'wpsc_form_action')) {
         return;
     }
 
     global $wpdb;
-    $table_name = $wpdb->prefix . 'wpsc_messages';
+    $table = $wpdb->prefix . 'wpsc_messages';
 
     $wpdb->insert(
-        $table_name,
+        $table,
         [
             'name'    => sanitize_text_field($_POST['wpsc_name']),
             'email'   => sanitize_email($_POST['wpsc_email']),
@@ -122,13 +109,15 @@ function wpsc_admin_menu() {
 /*--------------------------------------------------------------
 # Handle Delete Action (DELETE)
 --------------------------------------------------------------*/
+add_action('admin_init', 'wpsc_handle_delete');
+
 function wpsc_handle_delete() {
 
-    if (
-        !isset($_GET['action'], $_GET['id'], $_GET['_wpnonce']) ||
-        $_GET['action'] !== 'wpsc_delete' ||
-        !wp_verify_nonce($_GET['_wpnonce'], 'wpsc_delete_msg')
-    ) {
+    if (!isset($_GET['action'], $_GET['id'], $_GET['_wpnonce'])) {
+        return;
+    }
+
+    if ($_GET['action'] !== 'wpsc_delete') {
         return;
     }
 
@@ -136,19 +125,22 @@ function wpsc_handle_delete() {
         return;
     }
 
+    if (!wp_verify_nonce($_GET['_wpnonce'], 'wpsc_delete_msg')) {
+        wp_die('Security check failed');
+    }
+
     global $wpdb;
     $table = $wpdb->prefix . 'wpsc_messages';
     $id = absint($_GET['id']);
 
-    $wpdb->delete($table, ['id' => $id]);
+    $wpdb->delete($table, ['id' => $id], ['%d']);
 
-    wp_redirect(remove_query_arg(['action', 'id', '_wpnonce']));
+    wp_redirect(admin_url('admin.php?page=wpsc-admin'));
     exit;
 }
-add_action('admin_init', 'wpsc_handle_delete');
 
 /*--------------------------------------------------------------
-# Admin Page (READ + DELETE UI)
+# Admin Page (READ + SEARCH + DELETE UI)
 --------------------------------------------------------------*/
 function wpsc_admin_page() {
 
@@ -157,10 +149,33 @@ function wpsc_admin_page() {
     }
 
     global $wpdb;
-    $table_name = $wpdb->prefix . 'wpsc_messages';
-    $messages = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+    $table = $wpdb->prefix . 'wpsc_messages';
+
+    // Search
+    $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+    $where = '';
+
+    if ($search) {
+        $where = $wpdb->prepare(
+            "WHERE name LIKE %s OR email LIKE %s OR message LIKE %s",
+            "%$search%",
+            "%$search%",
+            "%$search%"
+        );
+    }
+
+    $messages = $wpdb->get_results(
+        "SELECT * FROM $table $where ORDER BY created_at DESC"
+    );
 
     echo '<div class="wrap"><h1>Contact Messages</h1>';
+
+    // Search form
+    echo '<form method="get" style="margin-bottom:15px;">
+            <input type="hidden" name="page" value="wpsc-admin">
+            <input type="text" name="s" value="'.esc_attr($search).'" placeholder="Search messages">
+            <input type="submit" class="button" value="Search">
+          </form>';
 
     if (!$messages) {
         echo '<p>No messages found.</p></div>';
@@ -182,22 +197,20 @@ function wpsc_admin_page() {
     foreach ($messages as $msg) {
 
         $delete_url = wp_nonce_url(
-            add_query_arg(
-                [
-                    'action' => 'wpsc_delete',
-                    'id'     => $msg->id
-                ]
-            ),
+            add_query_arg([
+                'action' => 'wpsc_delete',
+                'id'     => $msg->id
+            ]),
             'wpsc_delete_msg'
         );
 
         echo '<tr>
-                <td>' . esc_html($msg->name) . '</td>
-                <td>' . esc_html($msg->email) . '</td>
-                <td>' . esc_html($msg->message) . '</td>
-                <td>' . esc_html($msg->created_at) . '</td>
+                <td>'.esc_html($msg->name).'</td>
+                <td>'.esc_html($msg->email).'</td>
+                <td>'.esc_html($msg->message).'</td>
+                <td>'.esc_html($msg->created_at).'</td>
                 <td>
-                    <a href="' . esc_url($delete_url) . '" 
+                    <a href="'.esc_url($delete_url).'"
                        onclick="return confirm(\'Delete this message?\');">
                        Delete
                     </a>
